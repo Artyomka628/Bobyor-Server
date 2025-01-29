@@ -1,37 +1,36 @@
-from flask import Flask, request, jsonify
+﻿from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 import bcrypt
 import os
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True)  # Разрешаем запросы с других сайтов (например, TurboWarp)
+CORS(app, supports_credentials=True)
+
+# Отключаем ASCII-кодирование JSON, чтобы отправлять русские буквы
+app.config['JSON_AS_ASCII'] = False
 
 # Настройки базы данных (SQLite)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
-# Модель пользователя (таблица в БД)
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
-    password = db.Column(db.String(100), nullable=False)  # Храним безопасный хеш пароля
+    password = db.Column(db.String(100), nullable=False)
     multiplier = db.Column(db.Integer, default=1)
     coins = db.Column(db.Integer, default=0)
     level = db.Column(db.Integer, default=1)
     MoneyCountOffline = db.Column(db.Integer, default=0)
 
-# Создаём таблицу в БД
 with app.app_context():
     db.create_all()
 
-# Функция хеширования пароля
 def hash_password(password):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode(), salt).decode()
 
-# Функция проверки пароля
 def check_password(hashed_password, user_password):
     return bcrypt.checkpw(user_password.encode(), hashed_password.encode())
 
@@ -43,7 +42,6 @@ def delete_db():
     except FileNotFoundError:
         return jsonify({"error": "Файл не найден"}), 404
 
-# 🔹 Регистрация пользователя
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
@@ -62,7 +60,6 @@ def register():
 
     return jsonify({"message": "Регистрация успешна!"}), 200
 
-# 🔹 Вход в аккаунт
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
@@ -81,7 +78,6 @@ def login():
         "MoneyCountOffline": user.MoneyCountOffline
     }), 200
 
-# 🔹 Получение данных аккаунта
 @app.route('/get_account', methods=['GET'])
 def get_account():
     username = request.args.get('username')
@@ -98,7 +94,6 @@ def get_account():
         "MoneyCountOffline": user.MoneyCountOffline
     }), 200
 
-# 🔹 Обновление данных аккаунта
 @app.route('/update_account', methods=['POST'])
 def update_account():
     data = request.json
@@ -121,6 +116,5 @@ def update_account():
     return jsonify({"message": "Данные обновлены"}), 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 4096))  # Koyeb использует PORT
+    port = int(os.environ.get("PORT", 4096))
     app.run(debug=True, host="0.0.0.0", port=port)
-
