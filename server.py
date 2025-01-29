@@ -5,7 +5,7 @@ import bcrypt
 import os
 
 app = Flask(__name__)
-CORS(app)  # Разрешаем запросы с других сайтов (например, TurboWarp)
+CORS(app, supports_credentials=True)  # Разрешаем запросы с других сайтов (например, TurboWarp)
 
 # Настройки базы данных (SQLite)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
