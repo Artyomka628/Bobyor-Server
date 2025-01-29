@@ -35,6 +35,14 @@ def hash_password(password):
 def check_password(hashed_password, user_password):
     return bcrypt.checkpw(user_password.encode(), hashed_password.encode())
 
+@app.route('/delete_db', methods=['GET'])
+def delete_db():
+    try:
+        os.remove("accounts.db")
+        return jsonify({"message": "База данных удалена"}), 200
+    except FileNotFoundError:
+        return jsonify({"error": "Файл не найден"}), 404
+
 # 🔹 Регистрация пользователя
 @app.route('/register', methods=['POST'])
 def register():
