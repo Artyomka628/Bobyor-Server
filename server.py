@@ -31,7 +31,7 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
-ADMIN_PASSWORD = "admin123"  # Проверьте, что пароль введен без ошибок
+ADMIN_PASSWORD = "1488"  # Проверьте, что пароль введен без ошибок
 
 # ===================== ОРИГИНАЛЬНЫЕ ФУНКЦИИ =====================
 def hash_password(password):
