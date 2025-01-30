@@ -68,8 +68,11 @@ def delete_db():
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
-    username = data['username']
-    password = data['password']
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Не указаны имя пользователя или пароль"}), 400
 
     if User.query.filter_by(username=username).first():
         return jsonify({"error": "Пользователь уже существует"}), 400
@@ -85,8 +88,11 @@ def register():
 @app.route('/login', methods=['POST'])
 def login():
     data = request.json
-    username = data['username']
-    password = data['password']
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Не указаны имя пользователя или пароль"}), 400
 
     user = User.query.filter_by(username=username).first()
     if not user or not check_password(user.password, password):
@@ -103,6 +109,9 @@ def login():
 @app.route('/get_account', methods=['GET'])
 def get_account():
     username = request.args.get('username')
+    if not username:
+        return jsonify({"error": "Не указано имя пользователя"}), 400
+
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
@@ -118,15 +127,22 @@ def get_account():
 @app.route('/update_account', methods=['POST'])
 def update_account():
     data = request.json
-    username = data['username']
+    username = data.get('username')
+    if not username:
+        return jsonify({"error": "Не указано имя пользователя"}), 400
+
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
 
-    if 'coins' in data: user.coins = data['coins']
-    if 'level' in data: user.level = data['level']
-    if 'MoneyCountOffline' in data: user.MoneyCountOffline = data['MoneyCountOffline']
-    if 'multiplier' in data: user.multiplier = data['multiplier']
+    if 'coins' in data: 
+        user.coins = int(data['coins'])
+    if 'level' in data: 
+        user.level = int(data['level'])
+    if 'MoneyCountOffline' in data: 
+        user.MoneyCountOffline = int(data['MoneyCountOffline'])
+    if 'multiplier' in data: 
+        user.multiplier = int(data['multiplier'])
 
     db.session.commit()
     return jsonify({"message": "Данные обновлены"}), 200
@@ -134,20 +150,21 @@ def update_account():
 # ===================== АДМИН-ПАНЕЛЬ =====================
 @app.errorhandler(401)
 def handle_401(error):
-    # Уменьшаем счетчик попыток
-    limiter.hit(request.endpoint, (request.path, request.method))
-    return render_template("unauthorized.html"), 401
+    remaining = limiter.get_window_stats("admin.admin_login")[1]
+    return render_template("unauthorized.html", remaining=remaining), 401
 
 def admin_token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = request.cookies.get("admin_token")
         if not token:
-            return render_template("unauthorized.html"), 401
+            return render_template("unauthorized.html", remaining=limiter.get_window_stats("admin.admin_login")[1]), 401
         try:
             jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+        except jwt.ExpiredSignatureError:
+            return render_template("unauthorized.html", remaining=limiter.get_window_stats("admin.admin_login")[1]), 401
         except:
-            return render_template("unauthorized.html"), 401
+            return render_template("unauthorized.html", remaining=limiter.get_window_stats("admin.admin_login")[1]), 401
         return f(*args, **kwargs)
     return decorated
 
@@ -165,12 +182,14 @@ def admin_login():
     try:
         data = request.get_json()
         if not data:
-            return render_template("unauthorized.html"), 401
+            return render_template("unauthorized.html", remaining=limiter.get_window_stats(request.endpoint)[1]), 401
 
         password = data.get("password")
         if password == ADMIN_PASSWORD:
             token = jwt.encode(
-                payload={"exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
+                payload={
+                    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+                },
                 key=app.config["SECRET_KEY"],
                 algorithm="HS256"
             )
@@ -185,11 +204,11 @@ def admin_login():
             )
             return response
         else:
-            return render_template("unauthorized.html"), 401
+            return render_template("unauthorized.html", remaining=limiter.get_window_stats(request.endpoint)[1]), 401
 
     except Exception as e:
         app.logger.error(f"Ошибка: {str(e)}")
-        return render_template("unauthorized.html"), 401
+        return render_template("unauthorized.html", remaining=limiter.get_window_stats(request.endpoint)[1]), 401
 
 @app.route("/admin/dashboard", methods=["GET"])
 @admin_token_required
@@ -212,7 +231,11 @@ def get_all_users():
 @admin_token_required
 def admin_block_user():
     data = request.json
-    user = User.query.filter_by(username=data["username"]).first()
+    username = data.get("username")
+    if not username:
+        return jsonify({"error": "Не указано имя пользователя"}), 400
+
+    user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
     
