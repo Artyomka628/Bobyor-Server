@@ -150,28 +150,39 @@ def admin_login_page():
 @app.route("/admin/login", methods=["POST"])
 @limiter.limit("5/hour", override_defaults=False)
 def admin_login():
-    data = request.get_json()
-    if not data:
-        return jsonify({"status": "invalid_password"}), 401
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"status": "invalid_password"}), 401
 
-    # Проверка пароля
-    if data.get("password") == ADMIN_PASSWORD:
-        token = jwt.encode(
-            {"exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
-            app.config["SECRET_KEY"],
-            algorithm="HS256"
-        )
-        response = make_response(jsonify({"status": "success"}))
-        response.set_cookie(
-            "admin_token",
-            token,
-            httponly=True,
-            secure=True,
-            samesite="Strict"
-        )
-        return response
-    else:
-        return jsonify({"status": "invalid_password"}), 401
+        # Проверка пароля
+        if data.get("password") == ADMIN_PASSWORD:
+            # Генерация токена
+            token = jwt.encode(
+                {
+                    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+                },
+                app.config["SECRET_KEY"],
+                algorithm="HS256"
+            )
+            response = make_response(jsonify({"status": "success"}))
+            response.set_cookie(
+                "admin_token",
+                token,
+                httponly=True,
+                secure=False,  # Отключено для тестирования без HTTPS
+                samesite="Lax"
+            )
+            return response
+        else:
+            # Возвращаем заголовки с лимитом
+            return jsonify({"status": "invalid_password"}), 401, {
+                "X-RateLimit-Remaining": request.environ.get("X-RateLimit-Remaining", "5"),
+                "X-RateLimit-Limit": "5"
+            }
+    except Exception as e:
+        app.logger.error(f"Ошибка в admin_login: {str(e)}")
+        return jsonify({"error": "Internal Server Error"}), 500
 
 @app.route("/admin/dashboard")
 @admin_token_required

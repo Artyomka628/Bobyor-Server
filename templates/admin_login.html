@@ -73,34 +73,36 @@
     </div>
 
     <script>
-        async function login() {
-            const password = document.getElementById('password').value;
-            
-            try {
-                const response = await fetch('/admin/login', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ password })
-                });
+    async function login() {
+        const password = document.getElementById('password').value;
+        try {
+            const response = await fetch('/admin/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ password }),
+                credentials: 'include'  # Для работы с куки
+            });
 
-                if (response.ok) {
-                    window.location.href = '/admin/dashboard';
-                } else {
-                    // Получаем оставшиеся попытки из заголовков
-                    const remaining = response.headers.get('X-RateLimit-Remaining');
-                    if (remaining !== null) {
-                        document.getElementById('attempts').textContent = 
-                            `Осталось попыток: ${remaining}`;
-                    }
-                    
-                    if (response.status === 429) {
-                        window.location.href = '/admin/blocked';
-                    }
+            if (response.ok) {
+                window.location.href = '/admin/dashboard';
+            } else {
+                // Получаем оставшиеся попытки из заголовков
+                const remaining = response.headers.get('X-RateLimit-Remaining');
+                if (remaining !== null) {
+                    document.getElementById('attempts').textContent = 
+                        `Осталось попыток: ${remaining}`;
                 }
-            } catch (error) {
-                console.error('Ошибка:', error);
+                
+                if (response.status === 429) {
+                    window.location.href = '/admin/blocked';
+                }
             }
+        } catch (error) {
+            console.error('Ошибка:', error);
         }
-    </script>
+    }
+</script>
 </body>
 </html>
