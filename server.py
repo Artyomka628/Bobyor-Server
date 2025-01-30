@@ -7,6 +7,7 @@ import bcrypt
 import os
 import jwt
 import datetime
+import logging
 from functools import wraps
 
 app = Flask(__name__)
@@ -15,7 +16,11 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = "supersecretkey"
 
-# Инициализация лимитера с хранилищем в памяти
+# Настройка логирования
+logging.basicConfig(level=logging.DEBUG)
+app.logger.setLevel(logging.DEBUG)
+
+# Инициализация лимитера
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -39,7 +44,7 @@ with app.app_context():
 
 ADMIN_PASSWORD = "1488"  # Пароль администратора
 
-# ===================== ОСНОВНЫЕ ФУНКЦИИ =====================
+# ===================== ОРИГИНАЛЬНЫЕ ФУНКЦИИ =====================
 def hash_password(password):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode(), salt).decode()
@@ -151,17 +156,19 @@ def admin_login_page():
 @limiter.limit("5/hour", override_defaults=False)
 def admin_login():
     try:
+        app.logger.info("--- /admin/login запрос ---")
         data = request.get_json()
         if not data:
-            return jsonify({"status": "invalid_password"}), 401
+            app.logger.error("Ошибка: данные не в формате JSON")
+            return jsonify({"status": "invalid_request"}), 400
 
-        # Проверка пароля
-        if data.get("password") == ADMIN_PASSWORD:
-            # Генерация токена
+        password = data.get("password")
+        app.logger.debug(f"Попытка входа. Введенный пароль: '{password}'")
+
+        if password == ADMIN_PASSWORD:
+            app.logger.info("Пароль верный. Генерация токена...")
             token = jwt.encode(
-                {
-                    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-                },
+                {"exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
                 app.config["SECRET_KEY"],
                 algorithm="HS256"
             )
@@ -170,18 +177,17 @@ def admin_login():
                 "admin_token",
                 token,
                 httponly=True,
-                secure=False,  # Отключено для тестирования без HTTPS
+                secure=False,  # Для тестирования без HTTPS
                 samesite="Lax"
             )
+            app.logger.info("Успешный вход. Токен установлен.")
             return response
         else:
-            # Возвращаем заголовки с лимитом
-            return jsonify({"status": "invalid_password"}), 401, {
-                "X-RateLimit-Remaining": request.environ.get("X-RateLimit-Remaining", "5"),
-                "X-RateLimit-Limit": "5"
-            }
+            app.logger.warning(f"Неверный пароль. Ожидалось: '{ADMIN_PASSWORD}', получено: '{password}'")
+            return jsonify({"status": "invalid_password"}), 401
+
     except Exception as e:
-        app.logger.error(f"Ошибка в admin_login: {str(e)}")
+        app.logger.critical(f"Критическая ошибка: {str(e)}", exc_info=True)
         return jsonify({"error": "Internal Server Error"}), 500
 
 @app.route("/admin/dashboard")
