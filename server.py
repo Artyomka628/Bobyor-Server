@@ -158,13 +158,16 @@ def admin_token_required(f):
     def decorated(*args, **kwargs):
         token = request.cookies.get("admin_token")
         if not token:
-            return render_template("unauthorized.html", remaining=limiter.get_window_stats("admin.admin_login")[1]), 401
+            remaining = limiter.get_window_stats("admin.admin_login")[1]
+            return render_template("unauthorized.html", remaining=remaining), 401
         try:
             jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
-            return render_template("unauthorized.html", remaining=limiter.get_window_stats("admin.admin_login")[1]), 401
-        except:
-            return render_template("unauthorized.html", remaining=limiter.get_window_stats("admin.admin_login")[1]), 401
+            remaining = limiter.get_window_stats("admin.admin_login")[1]
+            return render_template("unauthorized.html", remaining=remaining), 401
+        except Exception as e:
+            remaining = limiter.get_window_stats("admin.admin_login")[1]
+            return render_template("unauthorized.html", remaining=remaining), 401
         return f(*args, **kwargs)
     return decorated
 
@@ -182,7 +185,8 @@ def admin_login():
     try:
         data = request.get_json()
         if not data:
-            return render_template("unauthorized.html", remaining=limiter.get_window_stats(request.endpoint)[1]), 401
+            remaining = limiter.get_window_stats(request.endpoint)[1]
+            return render_template("unauthorized.html", remaining=remaining), 401
 
         password = data.get("password")
         if password == ADMIN_PASSWORD:
@@ -204,11 +208,12 @@ def admin_login():
             )
             return response
         else:
-            return render_template("unauthorized.html", remaining=limiter.get_window_stats(request.endpoint)[1]), 401
+            remaining = limiter.get_window_stats(request.endpoint)[1]
+            return render_template("unauthorized.html", remaining=remaining), 401
 
     except Exception as e:
-        app.logger.error(f"Ошибка: {str(e)}")
-        return render_template("unauthorized.html", remaining=limiter.get_window_stats(request.endpoint)[1]), 401
+        remaining = limiter.get_window_stats(request.endpoint)[1]
+        return render_template("unauthorized.html", remaining=remaining), 401
 
 @app.route("/admin/dashboard", methods=["GET"])
 @admin_token_required
