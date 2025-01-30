@@ -68,41 +68,44 @@
         <p>Для доступа введите пароль</p>
         
         <input type="password" id="password" placeholder="Пароль">
-        <button onclick="login()">Войти</button>
+        <!-- Исправлено: вызов функции через addEventListener -->
+        <button id="loginButton">Войти</button>
         <p class="attempts" id="attempts">Осталось попыток: 5</p>
     </div>
 
     <script>
-    async function login() {
-        const password = document.getElementById('password').value;
-        try {
-            const response = await fetch('/admin/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ password }),
-                credentials: 'include'  # Для работы с куки
-            });
+        // Функция login объявлена глобально
+        async function login() {
+            const password = document.getElementById('password').value;
+            
+            try {
+                const response = await fetch('/admin/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ password }),
+                    credentials: 'include'
+                });
 
-            if (response.ok) {
-                window.location.href = '/admin/dashboard';
-            } else {
-                // Получаем оставшиеся попытки из заголовков
-                const remaining = response.headers.get('X-RateLimit-Remaining');
-                if (remaining !== null) {
-                    document.getElementById('attempts').textContent = 
-                        `Осталось попыток: ${remaining}`;
+                if (response.ok) {
+                    window.location.href = '/admin/dashboard';
+                } else {
+                    const remaining = response.headers.get('X-RateLimit-Remaining');
+                    if (remaining !== null) {
+                        document.getElementById('attempts').textContent = 
+                            `Осталось попыток: ${remaining}`;
+                    }
+                    
+                    if (response.status === 429) {
+                        window.location.href = '/admin/blocked';
+                    }
                 }
-                
-                if (response.status === 429) {
-                    window.location.href = '/admin/blocked';
-                }
+            } catch (error) {
+                console.error('Ошибка:', error);
             }
-        } catch (error) {
-            console.error('Ошибка:', error);
         }
-    }
-</script>
+
+        // Назначение обработчика через JavaScript, а не onclick
+        document.getElementById('loginButton').addEventListener('click', login);
+    </script>
 </body>
 </html>
