@@ -5,7 +5,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import bcrypt
 import os
-import jwt  # Убедитесь, что установлен PyJWT==2.8.0
+import jwt
 import datetime
 import logging
 from functools import wraps
@@ -20,7 +20,7 @@ app.config["SECRET_KEY"] = "supersecretkey"
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 
-# Инициализация лимитера
+# Инициализация лимитера с хранилищем в памяти
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -136,10 +136,15 @@ def admin_token_required(f):
     def decorated(*args, **kwargs):
         token = request.cookies.get("admin_token")
         if not token:
+            app.logger.warning("Попытка доступа без токена")
             return jsonify({"error": "Требуется авторизация"}), 401
         try:
             jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
-        except:
+        except jwt.ExpiredSignatureError:
+            app.logger.warning("Истек срок действия токена")
+            return jsonify({"error": "Токен устарел"}), 401
+        except Exception as e:
+            app.logger.error(f"Недействительный токен: {str(e)}")
             return jsonify({"error": "Недействительный токен"}), 401
         return f(*args, **kwargs)
     return decorated
@@ -156,18 +161,15 @@ def admin_login_page():
 @limiter.limit("5/hour", override_defaults=False)
 def admin_login():
     try:
-        app.logger.info("--- /admin/login запрос ---")
         data = request.get_json()
         if not data:
-            app.logger.error("Ошибка: данные не в формате JSON")
+            app.logger.error("Неверный формат запроса")
             return jsonify({"status": "invalid_request"}), 400
 
         password = data.get("password")
-        app.logger.debug(f"Попытка входа. Введенный пароль: '{password}'")
+        app.logger.debug(f"Попытка входа с паролем: {password}")
 
         if password == ADMIN_PASSWORD:
-            app.logger.info("Пароль верный. Генерация токена...")
-            # Исправленный вызов jwt.encode()
             token = jwt.encode(
                 payload={
                     "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
@@ -180,17 +182,18 @@ def admin_login():
                 "admin_token",
                 token,
                 httponly=True,
-                secure=False,  # Для тестирования без HTTPS
-                samesite="Lax"
+                secure=True,  # Для HTTPS
+                samesite="Strict",
+                max_age=3600
             )
-            app.logger.info("Успешный вход. Токен установлен.")
+            app.logger.info("Успешная аутентификация")
             return response
         else:
-            app.logger.warning(f"Неверный пароль. Ожидалось: '{ADMIN_PASSWORD}', получено: '{password}'")
+            app.logger.warning("Неверный пароль")
             return jsonify({"status": "invalid_password"}), 401
 
     except Exception as e:
-        app.logger.critical(f"Критическая ошибка: {str(e)}", exc_info=True)
+        app.logger.critical(f"Ошибка сервера: {str(e)}", exc_info=True)
         return jsonify({"error": "Internal Server Error"}), 500
 
 @app.route("/admin/dashboard")
@@ -231,4 +234,4 @@ def admin_blocked():
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 4096))
-    app.run(debug=True, host="0.0.0.0", port=port)
+    app.run(debug=False, host="0.0.0.0", port=port)

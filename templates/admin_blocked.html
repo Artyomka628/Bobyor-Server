@@ -1,8 +1,8 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Заблокировано</title>
+    <title>Доступ заблокирован</title>
     <style>
         body {
             background: #0f0f0f;
@@ -15,16 +15,23 @@
             font-family: Arial, sans-serif;
             text-align: center;
         }
+        .blocked-box {
+            padding: 2rem;
+            border: 2px solid #ff4444;
+            border-radius: 15px;
+            background: rgba(0, 0, 0, 0.8);
+            max-width: 500px;
+        }
         h1 {
-            font-size: 2.5rem;
+            font-size: 2rem;
             margin-bottom: 1rem;
         }
     </style>
 </head>
 <body>
-    <div>
+    <div class="blocked-box">
         <h1>🚫 ДОСТУП ЗАБЛОКИРОВАН</h1>
-        <p>Превышено количество попыток. Попробуйте через час.</p>
+        <p>Превышено количество попыток ввода пароля. Повторите через 1 час.</p>
     </div>
 </body>
 </html>

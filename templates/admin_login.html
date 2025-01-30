@@ -13,7 +13,6 @@
             margin: 0;
             font-family: 'Arial', sans-serif;
         }
-
         .login-box {
             background: rgba(0, 0, 0, 0.8);
             padding: 2rem 3rem;
@@ -23,13 +22,11 @@
             text-align: center;
             width: 350px;
         }
-
         h2 {
             color: #4CAF50;
             font-size: 1.8rem;
             margin-bottom: 1rem;
         }
-
         input {
             width: 100%;
             padding: 12px;
@@ -40,7 +37,6 @@
             border-radius: 5px;
             outline: none;
         }
-
         button {
             background: #4CAF50;
             color: white;
@@ -51,11 +47,9 @@
             font-weight: bold;
             transition: 0.3s;
         }
-
         button:hover {
             opacity: 0.8;
         }
-
         .attempts {
             color: #ff4444;
             margin-top: 1rem;
@@ -66,18 +60,14 @@
     <div class="login-box">
         <h2>АДМИН ПАНЕЛЬ BOBЁR</h2>
         <p>Для доступа введите пароль</p>
-        
         <input type="password" id="password" placeholder="Пароль">
-        <!-- Исправлено: вызов функции через addEventListener -->
         <button id="loginButton">Войти</button>
         <p class="attempts" id="attempts">Осталось попыток: 5</p>
     </div>
 
     <script>
-        // Функция login объявлена глобально
-        async function login() {
+        document.getElementById('loginButton').addEventListener('click', async () => {
             const password = document.getElementById('password').value;
-            
             try {
                 const response = await fetch('/admin/login', {
                     method: 'POST',
@@ -94,7 +84,6 @@
                         document.getElementById('attempts').textContent = 
                             `Осталось попыток: ${remaining}`;
                     }
-                    
                     if (response.status === 429) {
                         window.location.href = '/admin/blocked';
                     }
@@ -102,10 +91,7 @@
             } catch (error) {
                 console.error('Ошибка:', error);
             }
-        }
-
-        // Назначение обработчика через JavaScript, а не onclick
-        document.getElementById('loginButton').addEventListener('click', login);
+        });
     </script>
 </body>
 </html>
