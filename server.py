@@ -13,7 +13,7 @@ app = Flask(__name__)
 CORS(app, supports_credentials=True)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SECRET_KEY"] = "supersecretkey"  # Секретный ключ для JWT
+app.config["SECRET_KEY"] = "supersecretkey"
 
 db = SQLAlchemy(app)
 limiter = Limiter(app=app, key_func=get_remote_address)
@@ -31,8 +31,7 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
-# Пароль администратора (замените на свой)
-ADMIN_PASSWORD = "admin123"
+ADMIN_PASSWORD = "admin123"  # Проверьте, что пароль введен без ошибок
 
 # ===================== ОРИГИНАЛЬНЫЕ ФУНКЦИИ =====================
 def hash_password(password):
@@ -143,10 +142,10 @@ def admin_login_page():
     return render_template("admin_login.html")
 
 @app.route("/admin/login", methods=["POST"])
-@limiter.limit("5/hour")
+@limiter.limit("5/hour", override_defaults=False)
 def admin_login():
-    data = request.json
-    if data.get("password") == ADMIN_PASSWORD:
+    data = request.get_json()
+    if data and data.get("password") == ADMIN_PASSWORD:
         token = jwt.encode({
             "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
         }, app.config["SECRET_KEY"], algorithm="HS256")
@@ -186,12 +185,17 @@ def admin_block_user():
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
     
-    user.is_blocked = not user.is_blocked  # Переключение статуса блокировки
+    user.is_blocked = not user.is_blocked
     db.session.commit()
     return jsonify({
         "message": "Статус блокировки изменён",
         "is_blocked": user.is_blocked
     }), 200
+
+# Новый обработчик для страницы блокировки
+@app.route("/admin/blocked")
+def admin_blocked():
+    return render_template("admin_blocked.html"), 403
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 4096))
