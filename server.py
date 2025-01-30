@@ -20,12 +20,11 @@ app.config["SECRET_KEY"] = "supersecretkey"
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 
-# Инициализация лимитера с хранилищем в памяти
+# Инициализация лимитера
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     storage_uri="memory://",
-    default_limits=["5 per hour"]  # Общий лимит
 )
 
 db = SQLAlchemy(app)
@@ -150,8 +149,16 @@ def admin_token_required(f):
         return f(*args, **kwargs)
     return decorated
 
+@app.route("/admin", methods=["GET"])
+def admin_redirect():
+    return redirect("/admin/login")
+
+@app.route("/admin/login", methods=["GET"])
+def admin_login_page():
+    return render_template("admin_login.html")
+
 @app.route("/admin/login", methods=["POST"])
-@limiter.limit("5/hour", override_defaults=False, deduct_when=lambda response: response.status_code != 200)
+@limiter.limit("5/hour", override_defaults=False)
 def admin_login():
     try:
         data = request.get_json()
@@ -183,15 +190,47 @@ def admin_login():
             return response
         else:
             app.logger.warning("Неверный пароль")
-            # Явно уменьшаем счетчик попыток
-            limiter.hit(request.endpoint, request.view_args)
             return jsonify({"status": "invalid_password"}), 401
 
     except Exception as e:
         app.logger.critical(f"Ошибка сервера: {str(e)}", exc_info=True)
         return jsonify({"error": "Internal Server Error"}), 500
 
-# ... (остальные маршруты без изменений) ...
+@app.route("/admin/dashboard", methods=["GET"])
+@admin_token_required
+def admin_dashboard():
+    return render_template("admin_dashboard.html")
+
+@app.route("/admin/users", methods=["GET"])
+@admin_token_required
+def get_all_users():
+    users = User.query.all()
+    return jsonify([{
+        "id": u.id,
+        "username": u.username,
+        "coins": u.coins,
+        "level": u.level,
+        "blocked": u.is_blocked
+    } for u in users])
+
+@app.route("/admin/block_user", methods=["POST"])
+@admin_token_required
+def admin_block_user():
+    data = request.json
+    user = User.query.filter_by(username=data["username"]).first()
+    if not user:
+        return jsonify({"error": "Пользователь не найден"}), 404
+    
+    user.is_blocked = not user.is_blocked
+    db.session.commit()
+    return jsonify({
+        "message": "Статус блокировки изменён",
+        "is_blocked": user.is_blocked
+    }), 200
+
+@app.route("/admin/blocked", methods=["GET"])
+def admin_blocked():
+    return render_template("admin_blocked.html"), 403
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 4096))
