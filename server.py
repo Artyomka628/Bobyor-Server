@@ -5,7 +5,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 import bcrypt
 import os
-import jwt
+import jwt  # Убедитесь, что установлен PyJWT==2.8.0
 import datetime
 import logging
 from functools import wraps
@@ -44,7 +44,7 @@ with app.app_context():
 
 ADMIN_PASSWORD = "1488"  # Пароль администратора
 
-# ===================== ОРИГИНАЛЬНЫЕ ФУНКЦИИ =====================
+# ===================== ОСНОВНЫЕ ФУНКЦИИ =====================
 def hash_password(password):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode(), salt).decode()
@@ -167,9 +167,12 @@ def admin_login():
 
         if password == ADMIN_PASSWORD:
             app.logger.info("Пароль верный. Генерация токена...")
+            # Исправленный вызов jwt.encode()
             token = jwt.encode(
-                {"exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
-                app.config["SECRET_KEY"],
+                payload={
+                    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+                },
+                key=app.config["SECRET_KEY"],
                 algorithm="HS256"
             )
             response = make_response(jsonify({"status": "success"}))
