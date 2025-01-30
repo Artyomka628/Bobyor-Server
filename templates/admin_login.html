@@ -64,7 +64,7 @@
 </head>
 <body>
     <div class="login-box">
-        <h2>Админ панель Bobёr</h2>
+        <h2>АДМИН ПАНЕЛЬ BOBЁR</h2>
         <p>Для доступа введите пароль</p>
         
         <input type="password" id="password" placeholder="Пароль">
@@ -73,28 +73,27 @@
     </div>
 
     <script>
-        let attempts = 5;
-
         async function login() {
             const password = document.getElementById('password').value;
             
             try {
                 const response = await fetch('/admin/login', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ password })
                 });
 
                 if (response.ok) {
                     window.location.href = '/admin/dashboard';
                 } else {
-                    attempts--;
-                    document.getElementById('attempts').textContent = 
-                        `Осталось попыток: ${attempts}`;
+                    // Получаем оставшиеся попытки из заголовков
+                    const remaining = response.headers.get('X-RateLimit-Remaining');
+                    if (remaining !== null) {
+                        document.getElementById('attempts').textContent = 
+                            `Осталось попыток: ${remaining}`;
+                    }
                     
-                    if (attempts <= 0) {
+                    if (response.status === 429) {
                         window.location.href = '/admin/blocked';
                     }
                 }

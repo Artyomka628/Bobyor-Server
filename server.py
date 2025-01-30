@@ -15,8 +15,14 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = "supersecretkey"
 
+# Инициализация лимитера с хранилищем в памяти
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    storage_uri="memory://",
+)
+
 db = SQLAlchemy(app)
-limiter = Limiter(app=app, key_func=get_remote_address)
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -31,9 +37,9 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
-ADMIN_PASSWORD = "1488"  # Проверьте, что пароль введен без ошибок
+ADMIN_PASSWORD = "1488"  # Пароль администратора
 
-# ===================== ОРИГИНАЛЬНЫЕ ФУНКЦИИ =====================
+# ===================== ОСНОВНЫЕ ФУНКЦИИ =====================
 def hash_password(password):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode(), salt).decode()
@@ -145,20 +151,27 @@ def admin_login_page():
 @limiter.limit("5/hour", override_defaults=False)
 def admin_login():
     data = request.get_json()
-    if data and data.get("password") == ADMIN_PASSWORD:
-        token = jwt.encode({
-            "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-        }, app.config["SECRET_KEY"], algorithm="HS256")
+    if not data:
+        return jsonify({"status": "invalid_password"}), 401
+
+    # Проверка пароля
+    if data.get("password") == ADMIN_PASSWORD:
+        token = jwt.encode(
+            {"exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
+            app.config["SECRET_KEY"],
+            algorithm="HS256"
+        )
         response = make_response(jsonify({"status": "success"}))
         response.set_cookie(
-            "admin_token", 
-            token, 
-            httponly=True, 
-            secure=True, 
+            "admin_token",
+            token,
+            httponly=True,
+            secure=True,
             samesite="Strict"
         )
         return response
-    return jsonify({"status": "invalid_password"}), 401
+    else:
+        return jsonify({"status": "invalid_password"}), 401
 
 @app.route("/admin/dashboard")
 @admin_token_required
@@ -192,7 +205,6 @@ def admin_block_user():
         "is_blocked": user.is_blocked
     }), 200
 
-# Новый обработчик для страницы блокировки
 @app.route("/admin/blocked")
 def admin_blocked():
     return render_template("admin_blocked.html"), 403
