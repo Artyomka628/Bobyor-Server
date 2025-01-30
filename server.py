@@ -13,7 +13,7 @@ app = Flask(__name__)
 CORS(app, supports_credentials=True)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
+app.config["SECRET_KEY"] = "supersecretkey"  # Секретный ключ для JWT
 
 db = SQLAlchemy(app)
 limiter = Limiter(app=app, key_func=get_remote_address)
@@ -31,7 +31,8 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+# Пароль администратора (замените на свой)
+ADMIN_PASSWORD = "admin123"
 
 # ===================== ОРИГИНАЛЬНЫЕ ФУНКЦИИ =====================
 def hash_password(password):
@@ -181,7 +182,7 @@ def admin_block_user():
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
     
-    user.is_blocked = not user.is_blocked  # Toggle block status
+    user.is_blocked = not user.is_blocked  # Переключение статуса блокировки
     db.session.commit()
     return jsonify({
         "message": "Статус блокировки изменён",
