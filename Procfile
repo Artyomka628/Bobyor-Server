@@ -1,1 +1,1 @@
-web: pip install -r requirements.txt && python server.py
+﻿web: echo "Сервер запущен" && date +"%d.%m.%Y %H:%M:%S" && python server.py

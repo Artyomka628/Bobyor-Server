@@ -42,6 +42,10 @@ def hash_password(password):
 def check_password(hashed_password, user_password):
     return bcrypt.checkpw(user_password.encode(), hashed_password.encode())
 
+@app.route("/")
+def main_page():
+    return render_template("index.html")
+
 @app.route('/delete_db', methods=['GET'])
 def delete_db():
     try:
