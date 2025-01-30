@@ -25,6 +25,7 @@ limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     storage_uri="memory://",
+    default_limits=["5 per hour"]
 )
 
 db = SQLAlchemy(app)
@@ -131,21 +132,22 @@ def update_account():
     return jsonify({"message": "Данные обновлены"}), 200
 
 # ===================== АДМИН-ПАНЕЛЬ =====================
+@app.errorhandler(401)
+def handle_401(error):
+    # Уменьшаем счетчик попыток
+    limiter.hit(request.endpoint, (request.path, request.method))
+    return render_template("unauthorized.html"), 401
+
 def admin_token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = request.cookies.get("admin_token")
         if not token:
-            app.logger.warning("Попытка доступа без токена")
-            return jsonify({"error": "Требуется авторизация"}), 401
+            return render_template("unauthorized.html"), 401
         try:
             jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
-        except jwt.ExpiredSignatureError:
-            app.logger.warning("Истек срок действия токена")
-            return jsonify({"error": "Токен устарел"}), 401
-        except Exception as e:
-            app.logger.error(f"Недействительный токен: {str(e)}")
-            return jsonify({"error": "Недействительный токен"}), 401
+        except:
+            return render_template("unauthorized.html"), 401
         return f(*args, **kwargs)
     return decorated
 
@@ -163,17 +165,12 @@ def admin_login():
     try:
         data = request.get_json()
         if not data:
-            app.logger.error("Неверный формат запроса")
-            return jsonify({"status": "invalid_request"}), 400
+            return render_template("unauthorized.html"), 401
 
         password = data.get("password")
-        app.logger.debug(f"Попытка входа с паролем: {password}")
-
         if password == ADMIN_PASSWORD:
             token = jwt.encode(
-                payload={
-                    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-                },
+                payload={"exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
                 key=app.config["SECRET_KEY"],
                 algorithm="HS256"
             )
@@ -186,15 +183,13 @@ def admin_login():
                 samesite="Strict",
                 max_age=3600
             )
-            app.logger.info("Успешная аутентификация")
             return response
         else:
-            app.logger.warning("Неверный пароль")
-            return jsonify({"status": "invalid_password"}), 401
+            return render_template("unauthorized.html"), 401
 
     except Exception as e:
-        app.logger.critical(f"Ошибка сервера: {str(e)}", exc_info=True)
-        return jsonify({"error": "Internal Server Error"}), 500
+        app.logger.error(f"Ошибка: {str(e)}")
+        return render_template("unauthorized.html"), 401
 
 @app.route("/admin/dashboard", methods=["GET"])
 @admin_token_required

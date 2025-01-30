@@ -1,0 +1,37 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Ошибка авторизации</title>
+    <style>
+        body {
+            background: #0f0f0f;
+            color: #ff5555;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        .error-box {
+            padding: 2rem;
+            border: 2px solid #ff5555;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.8);
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-box">
+        <h1>Требуется авторизация</h1>
+        <p>У вас нет доступа к этой странице. Осталось попыток: {{ limiter.remaining }}</p>
+        <a href="/admin/login" style="color: #4CAF50;">Вернуться к авторизации</a>
+    </div>
+</body>
+</html>
