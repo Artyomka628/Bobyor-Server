@@ -57,22 +57,6 @@ def check_password(hashed_password, user_password):
 def main_page():
     return render_template("index.html")
 
-@app.route("/admin/delete_user", methods=["POST"])
-@admin_token_required
-def admin_delete_user():
-    data = request.json
-    username = data.get("username")
-    if not username:
-        return jsonify({"error": "Не указано имя пользователя"}), 400
-
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({"error": "Пользователь не найден"}), 404
-    
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({"message": "Пользователь удалён"}), 200
-
 @app.route('/delete_db', methods=['GET'])
 def delete_db():
     try:
@@ -265,6 +249,22 @@ def admin_block_user():
         "message": "Статус блокировки изменён",
         "is_blocked": user.is_blocked
     }), 200
+
+@app.route("/admin/delete_user", methods=["POST"])
+@admin_token_required
+def admin_delete_user():
+    data = request.json
+    username = data.get("username")
+    if not username:
+        return jsonify({"error": "Не указано имя пользователя"}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "Пользователь не найден"}), 404
+    
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "Пользователь удалён"}), 200
 
 @app.route("/admin/blocked", methods=["GET"])
 def admin_blocked():
