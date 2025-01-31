@@ -16,11 +16,11 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = "supersecretkey"
 
-# Настройка логирования
+# Логирование
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 
-# Инициализация лимитера
+# Лимитер
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -135,6 +135,7 @@ def update_account():
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
 
+    # Обновление данных
     if 'coins' in data: 
         user.coins = int(data['coins'])
     if 'level' in data: 
