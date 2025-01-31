@@ -41,7 +41,7 @@
     <div class="user-list" id="users"></div>
 
     <script>
-        const SERVER_URL = "https://ripe-tildi-artyomka-app-studio-77ba088f.koyeb.app";
+    	const SERVER_URL = window.location.origin;
 
         async function fetchUsers() {
             const response = await fetch(`${SERVER_URL}/admin/users`, { credentials: 'include' });
