@@ -150,7 +150,9 @@ def update_account():
 # ===================== АДМИН-ПАНЕЛЬ =====================
 @app.errorhandler(401)
 def handle_401(error):
-    remaining = limiter.get_window_stats("admin.admin_login")[1]
+    # Получаем заголовки с информацией о лимитах
+    headers = limiter.get_headers()
+    remaining = headers.get("X-RateLimit-Remaining", "5")
     return render_template("unauthorized.html", remaining=remaining), 401
 
 def admin_token_required(f):
@@ -158,16 +160,11 @@ def admin_token_required(f):
     def decorated(*args, **kwargs):
         token = request.cookies.get("admin_token")
         if not token:
-            remaining = limiter.get_window_stats("admin.admin_login")[1]
-            return render_template("unauthorized.html", remaining=remaining), 401
+            return render_template("unauthorized.html", remaining=limiter.get_headers().get("X-RateLimit-Remaining", "5")), 401
         try:
             jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
-        except jwt.ExpiredSignatureError:
-            remaining = limiter.get_window_stats("admin.admin_login")[1]
-            return render_template("unauthorized.html", remaining=remaining), 401
-        except Exception as e:
-            remaining = limiter.get_window_stats("admin.admin_login")[1]
-            return render_template("unauthorized.html", remaining=remaining), 401
+        except:
+            return render_template("unauthorized.html", remaining=limiter.get_headers().get("X-RateLimit-Remaining", "5")), 401
         return f(*args, **kwargs)
     return decorated
 
@@ -180,12 +177,13 @@ def admin_login_page():
     return render_template("admin_login.html")
 
 @app.route("/admin/login", methods=["POST"])
-@limiter.limit("5/hour", override_defaults=False)
+@limiter.limit("5/hour")
 def admin_login():
     try:
         data = request.get_json()
         if not data:
-            remaining = limiter.get_window_stats(request.endpoint)[1]
+            headers = limiter.get_headers()
+            remaining = headers.get("X-RateLimit-Remaining", "5")
             return render_template("unauthorized.html", remaining=remaining), 401
 
         password = data.get("password")
@@ -208,11 +206,13 @@ def admin_login():
             )
             return response
         else:
-            remaining = limiter.get_window_stats(request.endpoint)[1]
+            headers = limiter.get_headers()
+            remaining = headers.get("X-RateLimit-Remaining", "5")
             return render_template("unauthorized.html", remaining=remaining), 401
 
     except Exception as e:
-        remaining = limiter.get_window_stats(request.endpoint)[1]
+        headers = limiter.get_headers()
+        remaining = headers.get("X-RateLimit-Remaining", "5")
         return render_template("unauthorized.html", remaining=remaining), 401
 
 @app.route("/admin/dashboard", methods=["GET"])
