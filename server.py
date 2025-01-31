@@ -205,10 +205,14 @@ def admin_login():
             )
             return response
         else:
+            # Уменьшаем счетчик попыток вручную
+            limiter.hit(request.endpoint, (request.path, request.method))
             remaining = request.headers.get("X-RateLimit-Remaining", "5")
             return render_template("unauthorized.html", remaining=remaining), 401
 
     except Exception as e:
+        # Уменьшаем счетчик попыток вручную
+        limiter.hit(request.endpoint, (request.path, request.method))
         remaining = request.headers.get("X-RateLimit-Remaining", "5")
         return render_template("unauthorized.html", remaining=remaining), 401
 
