@@ -14,6 +14,22 @@
             border-bottom: 2px solid #4CAF50;
             padding-bottom: 1rem;
         }
+        .create-user-form {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 1rem;
+            margin-bottom: 2rem;
+            border-radius: 8px;
+            border: 1px solid #4CAF50;
+        }
+        .create-user-form input {
+            display: block;
+            margin: 5px 0;
+            padding: 8px;
+            background: #222;
+            color: #4CAF50;
+            border: 1px solid #4CAF50;
+            border-radius: 4px;
+        }
         .user-list {
             margin-top: 2rem;
         }
@@ -38,10 +54,20 @@
 </head>
 <body>
     <h1>Панель управления Bobёr</h1>
+    
+    <!-- Форма создания пользователя -->
+    <div class="create-user-form">
+        <h3>Создать нового пользователя</h3>
+        <input type="text" id="newUsername" placeholder="Имя пользователя">
+        <input type="password" id="newPassword" placeholder="Пароль">
+        <button class="button" onclick="createUser()">Создать</button>
+        <div id="createError" style="color: red; margin-top: 5px;"></div>
+    </div>
+
     <div class="user-list" id="users"></div>
 
     <script>
-    	const SERVER_URL = window.location.origin;
+        const SERVER_URL = window.location.origin;
 
         async function fetchUsers() {
             const response = await fetch(`${SERVER_URL}/admin/users`, { credentials: 'include' });
@@ -61,6 +87,7 @@
                     <h3>${user.username} (ID: ${user.id})</h3>
                     <p>Монеты: ${user.coins}</p>
                     <p>Уровень: ${user.level}</p>
+                    <p>Множитель: ${user.multiplier}</p>
                     <p>Статус: ${user.blocked ? 'Заблокирован' : 'Активен'}</p>
                     <button class="button block-btn" onclick="toggleBlock('${user.username}', ${user.blocked})">
                         ${user.blocked ? 'Разблокировать' : 'Заблокировать'}
@@ -101,6 +128,38 @@
             }
 
             fetchUsers();
+        }
+
+        async function createUser() {
+            const username = document.getElementById('newUsername').value;
+            const password = document.getElementById('newPassword').value;
+            const errorDiv = document.getElementById('createError');
+
+            if (!username || !password) {
+                errorDiv.textContent = "Заполните все поля!";
+                return;
+            }
+
+            try {
+                const response = await fetch(`${SERVER_URL}/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    errorDiv.textContent = errorData.error || "Ошибка при создании";
+                    return;
+                }
+
+                document.getElementById('newUsername').value = "";
+                document.getElementById('newPassword').value = "";
+                errorDiv.textContent = "";
+                fetchUsers();
+            } catch (e) {
+                errorDiv.textContent = "Ошибка соединения";
+            }
         }
 
         fetchUsers();

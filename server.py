@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, make_response, redirect
+﻿from flask import Flask, request, jsonify, render_template, make_response, redirect
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
@@ -20,7 +20,7 @@ app.config["SECRET_KEY"] = "supersecretkey"
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 
-# Инициализация лимитера с явным списанием попыток
+# Инициализация лимитера
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -56,22 +56,6 @@ def check_password(hashed_password, user_password):
 @app.route("/")
 def main_page():
     return render_template("index.html")
-
-@app.route("/admin/delete_user", methods=["POST"])
-@admin_token_required
-def admin_delete_user():
-    data = request.json
-    username = data.get("username")
-    if not username:
-        return jsonify({"error": "Не указано имя пользователя"}), 400
-
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({"error": "Пользователь не найден"}), 404
-    
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({"message": "Пользователь удалён"}), 200
 
 @app.route('/delete_db', methods=['GET'])
 def delete_db():
@@ -194,7 +178,7 @@ def admin_login_page():
 @app.route("/admin/login", methods=["POST"])
 @limiter.limit(
     "5/hour", 
-    deduct_when=lambda resp: resp.status_code == 401,  # Списание только при 401
+    deduct_when=lambda resp: resp.status_code == 401,
     override_defaults=False
 )
 def admin_login():
@@ -223,7 +207,6 @@ def admin_login():
             )
             return response
         else:
-            # Возвращаем 401, чтобы декоратор списал попытку
             return jsonify({"error": "Неверный пароль"}), 401
 
     except Exception as e:
@@ -243,6 +226,7 @@ def get_all_users():
         "id": u.id,
         "username": u.username,
         "coins": u.coins,
+        "multiplier": u.multiplier,
         "level": u.level,
         "blocked": u.is_blocked
     } for u in users])
@@ -265,6 +249,22 @@ def admin_block_user():
         "message": "Статус блокировки изменён",
         "is_blocked": user.is_blocked
     }), 200
+
+@app.route("/admin/delete_user", methods=["POST"])
+@admin_token_required
+def admin_delete_user():
+    data = request.json
+    username = data.get("username")
+    if not username:
+        return jsonify({"error": "Не указано имя пользователя"}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"error": "Пользователь не найден"}), 404
+    
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"message": "Пользователь удалён"}), 200
 
 @app.route("/admin/blocked", methods=["GET"])
 def admin_blocked():
