@@ -1,4 +1,4 @@
-﻿from flask import Flask, request, jsonify, render_template, make_response, redirect
+from flask import Flask, request, jsonify, render_template, make_response, redirect
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
@@ -16,9 +16,11 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = "supersecretkey"
 
+# Настройка логирования
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 
+# Инициализация лимитера с явным списанием попыток
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -43,6 +45,7 @@ with app.app_context():
 
 ADMIN_PASSWORD = "1488"
 
+# ===================== ОСНОВНЫЕ ФУНКЦИИ =====================
 def hash_password(password):
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode(), salt).decode()
@@ -144,30 +147,95 @@ def update_account():
     db.session.commit()
     return jsonify({"message": "Данные обновлены"}), 200
 
-@app.route('/admin/create_user', methods=['POST'])
-def admin_create_user():
+# ===================== АДМИН-ПАНЕЛЬ =====================
+@app.errorhandler(401)
+def handle_401(error):
+    headers = limiter.get_headers()
+    remaining = headers.get("X-RateLimit-Remaining", "5")
+    return render_template("unauthorized.html", remaining=remaining), 401
+
+def admin_token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = request.cookies.get("admin_token")
+        if not token:
+            return render_template("unauthorized.html", remaining="0"), 401
+        try:
+            jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
+        except:
+            return render_template("unauthorized.html", remaining="0"), 401
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route("/admin", methods=["GET"])
+def admin_redirect():
+    return redirect("/admin/login")
+
+@app.route("/admin/login", methods=["GET"])
+def admin_login_page():
+    return render_template("admin_login.html")
+
+@app.route("/admin/login", methods=["POST"])
+@limiter.limit(
+    "5/hour", 
+    deduct_when=lambda resp: resp.status_code == 401,  # Списание только при 401
+    override_defaults=False
+)
+def admin_login():
+    try:
+        data = request.get_json()
+        if not data or "password" not in data:
+            return jsonify({"error": "Неверный запрос"}), 400
+
+        password = data["password"]
+        if password == ADMIN_PASSWORD:
+            token = jwt.encode(
+                {
+                    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
+                },
+                app.config["SECRET_KEY"],
+                algorithm="HS256"
+            )
+            response = make_response(jsonify({"status": "success"}))
+            response.set_cookie(
+                "admin_token",
+                token,
+                httponly=True,
+                secure=True,
+                samesite="Strict",
+                max_age=3600
+            )
+            return response
+        else:
+            # Возвращаем 401, чтобы декоратор списал попытку
+            return jsonify({"error": "Неверный пароль"}), 401
+
+    except Exception as e:
+        app.logger.error(f"Ошибка: {str(e)}")
+        return jsonify({"error": "Внутренняя ошибка сервера"}), 500
+
+@app.route("/admin/dashboard", methods=["GET"])
+@admin_token_required
+def admin_dashboard():
+    return render_template("admin_dashboard.html")
+
+@app.route("/admin/users", methods=["GET"])
+@admin_token_required
+def get_all_users():
+    users = User.query.all()
+    return jsonify([{
+        "id": u.id,
+        "username": u.username,
+        "coins": u.coins,
+        "level": u.level,
+        "blocked": u.is_blocked
+    } for u in users])
+
+@app.route("/admin/block_user", methods=["POST"])
+@admin_token_required
+def admin_block_user():
     data = request.json
-    username = data.get('username')
-    password = data.get('password')
-
-    if not username or not password:
-        return jsonify({"error": "Не указаны имя пользователя или пароль"}), 400
-
-    if User.query.filter_by(username=username).first():
-        return jsonify({"error": "Пользователь уже существует"}), 400
-    
-    new_user = User(
-        username=username,
-        password=hash_password(password)
-    )
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({"message": "Пользователь создан администратором"}), 200
-
-@app.route('/admin/delete_user', methods=['POST'])
-def delete_user():
-    data = request.json
-    username = data.get('username')
+    username = data.get("username")
     if not username:
         return jsonify({"error": "Не указано имя пользователя"}), 400
 
@@ -175,9 +243,16 @@ def delete_user():
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
     
-    db.session.delete(user)
+    user.is_blocked = not user.is_blocked
     db.session.commit()
-    return jsonify({"message": "Пользователь удалён"}), 200
+    return jsonify({
+        "message": "Статус блокировки изменён",
+        "is_blocked": user.is_blocked
+    }), 200
+
+@app.route("/admin/blocked", methods=["GET"])
+def admin_blocked():
+    return render_template("admin_blocked.html"), 403
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 4096))
