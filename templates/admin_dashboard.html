@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
     <meta charset="UTF-8">
@@ -76,16 +76,17 @@
             width: 300px;
             border: 1px solid #4CAF50;
         }
-        .modal-content input {
+        .modal-content label {
+            display: block;
+            margin: 10px 0 5px 0;
+        }
+        .modal-content input, .modal-content select {
             width: 100%;
-            margin: 5px 0;
             padding: 8px;
             background: #222;
             color: #4CAF50;
             border: 1px solid #4CAF50;
-        }
-        .modal-content button {
-            margin-top: 10px;
+            border-radius: 4px;
         }
     </style>
 </head>
@@ -108,9 +109,17 @@
         <div class="modal-content">
             <span onclick="closeEditModal()" style="float: right; cursor: pointer; color: #4CAF50;">&times;</span>
             <h3>Редактирование данных</h3>
+            <label>Множитель:</label>
             <input type="number" id="editMultiplier" placeholder="Множитель">
+            <label>Уровень:</label>
             <input type="number" id="editLevel" placeholder="Уровень">
+            <label>Монеты:</label>
             <input type="number" id="editCoins" placeholder="Монеты">
+            <label>Доступ к лидерборду:</label>
+            <select id="editLeaderboardAccess">
+                <option value="true">Разрешен</option>
+                <option value="false">Запрещен</option>
+            </select>
             <button class="button" onclick="saveUserData()">Сохранить</button>
         </div>
     </div>
@@ -119,7 +128,6 @@
         const SERVER_URL = window.location.origin;
         let currentEditUser = null;
 
-        // Загрузка списка пользователей
         async function fetchUsers() {
             try {
                 const response = await fetch(`${SERVER_URL}/admin/users`, { 
@@ -136,20 +144,35 @@
                 container.innerHTML = '';
 
                 users.forEach(user => {
+                    // Определение статуса
+                    let statusText;
+                    if (user.blocked) {
+                        statusText = 'Заблокирован';
+                    } else if (!user.can_go_leaderboard) {
+                        statusText = 'Ограничен';
+                    } else {
+                        statusText = 'Активен';
+                    }
+
                     const userCard = `
                         <div class="user-card">
                             <h3>${user.username} (ID: ${user.id})</h3>
                             <p>Монеты: ${user.coins}</p>
                             <p>Уровень: ${user.level}</p>
                             <p>Множитель: ${user.multiplier}</p>
-                            <p>Статус: ${user.blocked ? 'Заблокирован' : 'Активен'}</p>
+                            <p>Статус: ${statusText}</p>
+                            <p>Доступ к лидерборду: ${user.can_go_leaderboard ? 'Да' : 'Нет'}</p>
                             <button class="button block-btn" onclick="toggleBlock('${user.username}', ${user.blocked})">
                                 ${user.blocked ? 'Разблокировать' : 'Заблокировать'}
                             </button>
                             <button class="button delete-btn" onclick="deleteUser('${user.username}')">Удалить</button>
-                            <button class="button edit-btn" onclick="openEditModal('${user.username}', ${user.multiplier}, ${user.level}, ${user.coins})">
-                                Редактировать
-                            </button>
+                            <button class="button edit-btn" onclick="openEditModal(
+                                '${user.username}', 
+                                ${user.multiplier}, 
+                                ${user.level}, 
+                                ${user.coins}, 
+                                ${user.can_go_leaderboard}
+                            )">Редактировать</button>
                         </div>
                     `;
                     container.innerHTML += userCard;
@@ -159,7 +182,47 @@
             }
         }
 
-        // Блокировка/разблокировка пользователя
+        function openEditModal(username, multiplier, level, coins, canGoLeaderboard) {
+            currentEditUser = username;
+            document.getElementById('editMultiplier').value = multiplier;
+            document.getElementById('editLevel').value = level;
+            document.getElementById('editCoins').value = coins;
+            document.getElementById('editLeaderboardAccess').value = canGoLeaderboard ? 'true' : 'false';
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        async function saveUserData() {
+            const data = {
+                username: currentEditUser,
+                multiplier: parseInt(document.getElementById('editMultiplier').value),
+                level: parseInt(document.getElementById('editLevel').value),
+                coins: parseInt(document.getElementById('editCoins').value),
+                can_go_leaderboard: document.getElementById('editLeaderboardAccess').value === 'true'
+            };
+
+            try {
+                const response = await fetch(`${SERVER_URL}/update_account`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (!response.ok) {
+                    alert("Ошибка обновления данных!");
+                    return;
+                }
+
+                closeEditModal();
+                fetchUsers();
+            } catch (error) {
+                console.error("Ошибка:", error);
+            }
+        }
+
         async function toggleBlock(username, isBlocked) {
             try {
                 const response = await fetch(`${SERVER_URL}/admin/block_user`, {
@@ -180,7 +243,6 @@
             }
         }
 
-        // Удаление пользователя
         async function deleteUser(username) {
             if (!confirm("Вы уверены, что хотите удалить пользователя?")) return;
 
@@ -203,7 +265,6 @@
             }
         }
 
-        // Создание пользователя
         async function createUser() {
             const username = document.getElementById('newUsername').value;
             const password = document.getElementById('newPassword').value;
@@ -234,48 +295,6 @@
                 fetchUsers();
             } catch (error) {
                 errorDiv.textContent = "Ошибка соединения";
-            }
-        }
-
-        // Открыть модальное окно редактирования
-        function openEditModal(username, multiplier, level, coins) {
-            currentEditUser = username;
-            document.getElementById('editMultiplier').value = multiplier;
-            document.getElementById('editLevel').value = level;
-            document.getElementById('editCoins').value = coins;
-            document.getElementById('editModal').style.display = 'block';
-        }
-
-        // Закрыть модальное окно
-        function closeEditModal() {
-            document.getElementById('editModal').style.display = 'none';
-        }
-
-        // Сохранить изменения
-        async function saveUserData() {
-            const data = {
-                username: currentEditUser,
-                multiplier: parseInt(document.getElementById('editMultiplier').value),
-                level: parseInt(document.getElementById('editLevel').value),
-                coins: parseInt(document.getElementById('editCoins').value)
-            };
-
-            try {
-                const response = await fetch(`${SERVER_URL}/update_account`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(data)
-                });
-
-                if (!response.ok) {
-                    alert("Ошибка обновления данных!");
-                    return;
-                }
-
-                closeEditModal();
-                fetchUsers(); // Обновить список
-            } catch (error) {
-                console.error("Ошибка:", error);
             }
         }
 
