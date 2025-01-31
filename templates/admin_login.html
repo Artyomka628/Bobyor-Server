@@ -50,10 +50,15 @@
         button:hover {
             opacity: 0.8;
         }
-        .attempts {
-            color: #ff4444;
-            margin-top: 1rem;
-        }
+        .login-box p {
+        color: white !important; /* Все параграфы будут белыми */
+        margin: 5px 0;
+    	}
+    
+    	.attempts {
+        margin-top: 1rem;
+        color: white !important; /* Переопределение красного цвета */
+    	}
     </style>
 </head>
 <body>
@@ -62,8 +67,8 @@
         <p>Для доступа введите пароль</p>
         <input type="password" id="password" placeholder="Пароль">
         <button id="loginButton">Войти</button>
-        <p class="attempts" id="attempts">Если вы просто так сюда попали,</p>
-	<p>закройте вкладку, это не для вас!</p>
+	<p class="attempts" id="attempts">Если вы просто так сюда попали,</p>
+    	<p>закройте вкладку, это не для вас!</p>
     </div>
 
     <script>
