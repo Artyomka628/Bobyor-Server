@@ -1,4 +1,4 @@
-﻿from flask import Flask, request, jsonify, render_template, make_response, redirect
+from flask import Flask, request, jsonify, render_template, make_response, redirect
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
@@ -20,7 +20,7 @@ app.config["SECRET_KEY"] = "supersecretkey"
 logging.basicConfig(level=logging.DEBUG)
 app.logger.setLevel(logging.DEBUG)
 
-# Инициализация лимитера
+# Инициализация лимитера с явным списанием попыток
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -150,7 +150,8 @@ def update_account():
 # ===================== АДМИН-ПАНЕЛЬ =====================
 @app.errorhandler(401)
 def handle_401(error):
-    remaining = request.headers.get("X-RateLimit-Remaining", "5")
+    headers = limiter.get_headers()
+    remaining = headers.get("X-RateLimit-Remaining", "5")
     return render_template("unauthorized.html", remaining=remaining), 401
 
 def admin_token_required(f):
@@ -158,13 +159,11 @@ def admin_token_required(f):
     def decorated(*args, **kwargs):
         token = request.cookies.get("admin_token")
         if not token:
-            remaining = request.headers.get("X-RateLimit-Remaining", "5")
-            return render_template("unauthorized.html", remaining=remaining), 401
+            return render_template("unauthorized.html", remaining="0"), 401
         try:
             jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
         except:
-            remaining = request.headers.get("X-RateLimit-Remaining", "5")
-            return render_template("unauthorized.html", remaining=remaining), 401
+            return render_template("unauthorized.html", remaining="0"), 401
         return f(*args, **kwargs)
     return decorated
 
@@ -177,21 +176,24 @@ def admin_login_page():
     return render_template("admin_login.html")
 
 @app.route("/admin/login", methods=["POST"])
-@limiter.limit("5/hour")
+@limiter.limit(
+    "5/hour", 
+    deduct_when=lambda resp: resp.status_code == 401,  # Списание только при 401
+    override_defaults=False
+)
 def admin_login():
     try:
         data = request.get_json()
-        if not data:
-            remaining = request.headers.get("X-RateLimit-Remaining", "5")
-            return render_template("unauthorized.html", remaining=remaining), 401
+        if not data or "password" not in data:
+            return jsonify({"error": "Неверный запрос"}), 400
 
-        password = data.get("password")
+        password = data["password"]
         if password == ADMIN_PASSWORD:
             token = jwt.encode(
-                payload={
+                {
                     "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
                 },
-                key=app.config["SECRET_KEY"],
+                app.config["SECRET_KEY"],
                 algorithm="HS256"
             )
             response = make_response(jsonify({"status": "success"}))
@@ -205,16 +207,12 @@ def admin_login():
             )
             return response
         else:
-            # Уменьшаем счетчик попыток вручную
-            limiter.hit(request.endpoint, (request.path, request.method))
-            remaining = request.headers.get("X-RateLimit-Remaining", "5")
-            return render_template("unauthorized.html", remaining=remaining), 401
+            # Возвращаем 401, чтобы декоратор списал попытку
+            return jsonify({"error": "Неверный пароль"}), 401
 
     except Exception as e:
-        # Уменьшаем счетчик попыток вручную
-        limiter.hit(request.endpoint, (request.path, request.method))
-        remaining = request.headers.get("X-RateLimit-Remaining", "5")
-        return render_template("unauthorized.html", remaining=remaining), 401
+        app.logger.error(f"Ошибка: {str(e)}")
+        return jsonify({"error": "Внутренняя ошибка сервера"}), 500
 
 @app.route("/admin/dashboard", methods=["GET"])
 @admin_token_required
