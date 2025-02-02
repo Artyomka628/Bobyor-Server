@@ -9,27 +9,30 @@ import jwt
 import datetime
 import logging
 from functools import wraps
+from cryptography.fernet import Fernet
+import b2sdk.v2 as b2
 
+# Конфигурация приложения
 app = Flask(__name__)
 CORS(app, supports_credentials=True)
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///accounts.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["SECRET_KEY"] = "supersecretkey"
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "supersecretkey")
+app.config["B2_KEY_ID"] = os.environ.get("B2_KEY_ID")
+app.config["B2_APP_KEY"] = os.environ.get("B2_APP_KEY")
+app.config["B2_BUCKET"] = os.environ.get("B2_BUCKET")
+app.config["BACKUP_KEY"] = os.environ.get("BACKUP_KEY", Fernet.generate_key())
 
-# Логирование
-logging.basicConfig(level=logging.DEBUG)
-app.logger.setLevel(logging.DEBUG)
-
-# Лимитер
+# Инициализация компонентов
+db = SQLAlchemy(app)
+fernet = Fernet(app.config["BACKUP_KEY"])
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    storage_uri="memory://",
-    default_limits=["5 per hour"]
+    default_limits=["20 per hour"]
 )
 
-db = SQLAlchemy(app)
-
+# Модель пользователя
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
@@ -37,33 +40,70 @@ class User(db.Model):
     multiplier = db.Column(db.Integer, default=1)
     coins = db.Column(db.Integer, default=0)
     level = db.Column(db.Integer, default=1)
-    MoneyCountOffline = db.Column(db.Integer, default=0)
     is_blocked = db.Column(db.Boolean, default=False)
+    can_go_leaderboard = db.Column(db.Boolean, default=True)
 
+# Функции резервного копирования
+def backup_db():
+    try:
+        # Шифрование базы
+        with open("accounts.db", "rb") as f:
+            encrypted = fernet.encrypt(f.read())
+        
+        # Подключение к Backblaze
+        info = b2.InMemoryAccountInfo()
+        b2_api = b2.B2Api(info)
+        b2_api.authorize_account("production", app.config["B2_KEY_ID"], app.config["B2_APP_KEY"])
+        bucket = b2_api.get_bucket_by_name(app.config["B2_BUCKET"])
+        
+        # Загрузка файла
+        bucket.upload_bytes(
+            data_bytes=encrypted,
+            file_name="accounts.db.enc"
+        )
+    except Exception as e:
+        app.logger.error(f"Backup error: {str(e)}")
+
+def restore_db():
+    try:
+        # Восстановление из Backblaze
+        info = b2.InMemoryAccountInfo()
+        b2_api = b2.B2Api(info)
+        b2_api.authorize_account("production", app.config["B2_KEY_ID"], app.config["B2_APP_KEY"])
+        bucket = b2_api.get_bucket_by_name(app.config["B2_BUCKET"])
+        
+        # Скачивание файла
+        file_versions = bucket.list_file_versions("accounts.db.enc")
+        if file_versions:
+            file = file_versions[0]
+            downloaded = file.download()
+            decrypted = fernet.decrypt(downloaded.get_bytes())
+            
+            with open("accounts.db", "wb") as f:
+                f.write(decrypted)
+    except Exception as e:
+        app.logger.error(f"Restore error: {str(e)}")
+
+# Инициализация базы при запуске
 with app.app_context():
+    if not os.path.exists("accounts.db"):
+        restore_db()
     db.create_all()
 
-ADMIN_PASSWORD = "1488"
+# Хук для автоматического бэкапа
+@app.after_request
+def auto_backup(response):
+    if (
+        request.endpoint in ["register", "update_account", "admin_block_user", "admin_delete_user"]
+        and response.status_code == 200
+    ):
+        backup_db()
+    return response
 
-# ===================== ОСНОВНЫЕ ФУНКЦИИ =====================
-def hash_password(password):
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode(), salt).decode()
-
-def check_password(hashed_password, user_password):
-    return bcrypt.checkpw(user_password.encode(), hashed_password.encode())
-
+# Основные маршруты
 @app.route("/")
 def main_page():
     return render_template("index.html")
-
-@app.route('/delete_db', methods=['GET'])
-def delete_db():
-    try:
-        os.remove("accounts.db")
-        return jsonify({"message": "База данных удалена"}), 200
-    except FileNotFoundError:
-        return jsonify({"error": "Файл не найден"}), 404
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -79,7 +119,8 @@ def register():
     
     new_user = User(
         username=username,
-        password=hash_password(password)
+        password=bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode(),
+        can_go_leaderboard=True
     )
     db.session.add(new_user)
     db.session.commit()
@@ -95,7 +136,7 @@ def login():
         return jsonify({"error": "Не указаны имя пользователя или пароль"}), 400
 
     user = User.query.filter_by(username=username).first()
-    if not user or not check_password(user.password, password):
+    if not user or not bcrypt.checkpw(password.encode(), user.password.encode()):
         return jsonify({"error": "Неверное имя пользователя или пароль"}), 401
 
     return jsonify({
@@ -103,25 +144,7 @@ def login():
         "multiplier": user.multiplier,
         "coins": user.coins,
         "level": user.level,
-        "MoneyCountOffline": user.MoneyCountOffline
-    }), 200
-
-@app.route('/get_account', methods=['GET'])
-def get_account():
-    username = request.args.get('username')
-    if not username:
-        return jsonify({"error": "Не указано имя пользователя"}), 400
-
-    user = User.query.filter_by(username=username).first()
-    if not user:
-        return jsonify({"error": "Пользователь не найден"}), 404
-
-    return jsonify({
-        "username": user.username,
-        "multiplier": user.multiplier,
-        "coins": user.coins,
-        "level": user.level,
-        "MoneyCountOffline": user.MoneyCountOffline
+        "can_go_leaderboard": user.can_go_leaderboard
     }), 200
 
 @app.route('/update_account', methods=['POST'])
@@ -140,84 +163,44 @@ def update_account():
         user.coins = int(data['coins'])
     if 'level' in data: 
         user.level = int(data['level'])
-    if 'MoneyCountOffline' in data: 
-        user.MoneyCountOffline = int(data['MoneyCountOffline'])
     if 'multiplier' in data: 
         user.multiplier = int(data['multiplier'])
+    if 'can_go_leaderboard' in data: 
+        user.can_go_leaderboard = bool(data['can_go_leaderboard'])
 
     db.session.commit()
     return jsonify({"message": "Данные обновлены"}), 200
 
-# ===================== АДМИН-ПАНЕЛЬ =====================
-@app.errorhandler(401)
-def handle_401(error):
-    headers = limiter.get_headers()
-    remaining = headers.get("X-RateLimit-Remaining", "5")
-    return render_template("unauthorized.html", remaining=remaining), 401
-
+# Админские маршруты
 def admin_token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = request.cookies.get("admin_token")
         if not token:
-            return render_template("unauthorized.html", remaining="0"), 401
+            return jsonify({"error": "Требуется авторизация"}), 401
         try:
             jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
         except:
-            return render_template("unauthorized.html", remaining="0"), 401
+            return jsonify({"error": "Недействительный токен"}), 401
         return f(*args, **kwargs)
     return decorated
 
-@app.route("/admin", methods=["GET"])
-def admin_redirect():
-    return redirect("/admin/login")
-
-@app.route("/admin/login", methods=["GET"])
-def admin_login_page():
-    return render_template("admin_login.html")
-
 @app.route("/admin/login", methods=["POST"])
-@limiter.limit(
-    "5/hour", 
-    deduct_when=lambda resp: resp.status_code == 401,
-    override_defaults=False
-)
+@limiter.limit("10/hour")
 def admin_login():
-    try:
-        data = request.get_json()
-        if not data or "password" not in data:
-            return jsonify({"error": "Неверный запрос"}), 400
-
-        password = data["password"]
-        if password == ADMIN_PASSWORD:
-            token = jwt.encode(
-                {
-                    "exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)
-                },
-                app.config["SECRET_KEY"],
-                algorithm="HS256"
-            )
-            response = make_response(jsonify({"status": "success"}))
-            response.set_cookie(
-                "admin_token",
-                token,
-                httponly=True,
-                secure=True,
-                samesite="Strict",
-                max_age=3600
-            )
-            return response
-        else:
-            return jsonify({"error": "Неверный пароль"}), 401
-
-    except Exception as e:
-        app.logger.error(f"Ошибка: {str(e)}")
-        return jsonify({"error": "Внутренняя ошибка сервера"}), 500
-
-@app.route("/admin/dashboard", methods=["GET"])
-@admin_token_required
-def admin_dashboard():
-    return render_template("admin_dashboard.html")
+    data = request.get_json()
+    password = data.get("password")
+    
+    if password == os.environ.get("ADMIN_PASSWORD", "1488"):
+        token = jwt.encode(
+            {"exp": datetime.datetime.utcnow() + datetime.timedelta(hours=1)},
+            app.config["SECRET_KEY"],
+            algorithm="HS256"
+        )
+        response = make_response(jsonify({"status": "success"}))
+        response.set_cookie("admin_token", token, httponly=True, secure=True, samesite="Strict")
+        return response
+    return jsonify({"error": "Неверный пароль"}), 401
 
 @app.route("/admin/users", methods=["GET"])
 @admin_token_required
@@ -229,7 +212,8 @@ def get_all_users():
         "coins": u.coins,
         "multiplier": u.multiplier,
         "level": u.level,
-        "blocked": u.is_blocked
+        "is_blocked": u.is_blocked,
+        "can_go_leaderboard": u.can_go_leaderboard
     } for u in users])
 
 @app.route("/admin/block_user", methods=["POST"])
@@ -237,28 +221,21 @@ def get_all_users():
 def admin_block_user():
     data = request.json
     username = data.get("username")
-    if not username:
-        return jsonify({"error": "Не указано имя пользователя"}), 400
-
+    
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
     
     user.is_blocked = not user.is_blocked
     db.session.commit()
-    return jsonify({
-        "message": "Статус блокировки изменён",
-        "is_blocked": user.is_blocked
-    }), 200
+    return jsonify({"message": "Статус блокировки изменён"}), 200
 
 @app.route("/admin/delete_user", methods=["POST"])
 @admin_token_required
 def admin_delete_user():
     data = request.json
     username = data.get("username")
-    if not username:
-        return jsonify({"error": "Не указано имя пользователя"}), 400
-
+    
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({"error": "Пользователь не найден"}), 404
@@ -266,10 +243,6 @@ def admin_delete_user():
     db.session.delete(user)
     db.session.commit()
     return jsonify({"message": "Пользователь удалён"}), 200
-
-@app.route("/admin/blocked", methods=["GET"])
-def admin_blocked():
-    return render_template("admin_blocked.html"), 403
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 4096))
