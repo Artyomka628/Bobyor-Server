@@ -1,165 +1,172 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session
-from flask_cors import CORS
+import os
+import datetime
+import bcrypt
+import jwt
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, make_response
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-import bcrypt
-import os
-import jwt
-import datetime
-from functools import wraps
-from cryptography.fernet import Fernet
+from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
-
-# Настройки базы данных
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'default_secret')
+app.config['SECRET_KEY'] = 'supersecretkey'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
+CORS(app)
 
-# Настройка лимита запросов
 limiter = Limiter(get_remote_address, app=app, default_limits=["20 per hour"])
 
-# Таблица пользователей
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
-    is_blocked = db.Column(db.Boolean, default=False)
+    blocked = db.Column(db.Boolean, default=False)
 
-# Проверка токена для доступа к защищенным маршрутам
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.cookies.get('token')
-        if not token:
-            return redirect(url_for('unauthorized'))
-        try:
-            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-        except:
-            return redirect(url_for('unauthorized'))
-        return f(*args, **kwargs)
-    return decorated
+with app.app_context():
+    db.create_all()
 
-# Главная страница
 @app.route('/')
 def home():
     return render_template('index.html')
 
-# Кнопка "Админ панель" ведет на /admin/login
-@app.route('/admin/')
-def admin_redirect():
-    return redirect(url_for('admin_login'))
+@app.route('/admin', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
+def admin_login():
+    if request.method == 'POST':
+        password = request.form.get('password')
 
-# Блокировка IP при переборе пароля
-blocked_ips = {}
+        if not password:
+            return jsonify({'error': 'Пароль не передан'}), 400
+
+        admin_pass = os.getenv('ADMIN_PASSWORD')
+        print(f"Сохранённый пароль: {admin_pass}")  # Лог для проверки
+
+        if not admin_pass:
+            return jsonify({'error': 'ADMIN_PASSWORD не задан в переменных окружения'}), 500
+
+        try:
+            # Проверяем, является ли пароль администратора хешированным (если строка длиной 60, это хеш bcrypt)
+            if len(admin_pass) == 60:
+                if bcrypt.checkpw(password.encode(), admin_pass.encode()):
+                    token = jwt.encode({'user': 'admin', 'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)}, app.config['SECRET_KEY'])
+                    resp = make_response(redirect(url_for('admin_dashboard')))
+                    resp.set_cookie('token', token)
+                    return resp
+                else:
+                    return jsonify({'error': 'Неверный пароль'}), 401
+            else:
+                # Если пароль не хеширован, хешируем его и сохраняем в переменных окружения
+                hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+                os.environ['ADMIN_PASSWORD'] = hashed_password.decode()
+                return jsonify({'error': 'Пароль администратора был автоматически хеширован и сохранён'}), 500
+
+        except ValueError:
+            return jsonify({'error': 'Пароль администратора в неверном формате! Убедись, что он хеширован в bcrypt'}), 500
+
+    return render_template('admin_login.html')
+
+
+@app.route('/admin/dashboard')
+def admin_dashboard():
+    token = request.cookies.get('token')
+
+    if not token:
+        return redirect(url_for('unauthorized'))
+
+    try:
+        decoded_token = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        if decoded_token.get('user') != 'admin':
+            return redirect(url_for('unauthorized'))
+    except jwt.ExpiredSignatureError:
+        return redirect(url_for('unauthorized'))
+    except jwt.InvalidTokenError:
+        return redirect(url_for('unauthorized'))
+
+    users = User.query.all()
+    return render_template('admin_dashboard.html', users=users)
+
+@app.route('/admin/unauthorized')
+def unauthorized():
+    return "Доступ запрещён!", 403
 
 @app.route('/admin/blocked')
 def blocked():
     return render_template('blocked.html')
 
-# Страница входа в админ-панель
-@app.route('/admin/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
-def admin_login():
-    ip = get_remote_address()
-    if ip in blocked_ips and (datetime.datetime.utcnow() - blocked_ips[ip]).seconds < 3600:
-        return redirect(url_for('blocked'))
-
-    if request.method == 'POST':
-        password = request.form.get('password')
-        if password == os.getenv('ADMIN_PASSWORD'):
-            session['admin'] = True
-            return redirect(url_for('admin_dashboard'))
-        blocked_ips[ip] = datetime.datetime.utcnow()
-        return redirect(url_for('unauthorized'))
-
-    return render_template('admin_login.html')
-
-# Страница админ-панели (защищенная)
-@app.route('/admin/dashboard')
-@token_required
-def admin_dashboard():
-    return render_template('admin_dashboard.html')
-
-# Страница ошибки доступа
-@app.route('/admin/unauthorized')
-def unauthorized():
-    return render_template('unauthorized.html')
-
-# Регистрация пользователя
 @app.route('/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    hashed_password = bcrypt.hashpw(data['password'].encode(), bcrypt.gensalt())
-    new_user = User(username=data['username'], password=hashed_password)
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({'error': 'Заполните все поля'}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({'error': 'Пользователь уже существует'}), 409
+
+    hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+    new_user = User(username=username, password=hashed_password.decode())
     db.session.add(new_user)
     db.session.commit()
-    return jsonify({"message": "User registered successfully"})
 
-# Вход в аккаунт
+    return jsonify({'message': 'Регистрация успешна!'}), 201
+
 @app.route('/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    user = User.query.filter_by(username=data['username']).first()
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
 
+    user = User.query.filter_by(username=username).first()
+
+    if not user or not bcrypt.checkpw(password.encode(), user.password.encode()):
+        return jsonify({'error': 'Неверный логин или пароль'}), 401
+
+    if user.blocked:
+        return redirect(url_for('blocked'))
+
+    return jsonify({'message': 'Вход успешен!'}), 200
+
+@app.route('/admin/block/<int:user_id>', methods=['POST'])
+def block_user(user_id):
+    token = request.cookies.get('token')
+    try:
+        decoded_token = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        if decoded_token.get('user') != 'admin':
+            return jsonify({'error': 'Недостаточно прав'}), 403
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Недостаточно прав'}), 403
+
+    user = User.query.get(user_id)
     if not user:
-        return jsonify({"error": "User not found"}), 404
-    if user.is_blocked:
-        return jsonify({"error": "User is blocked"}), 403
-    if bcrypt.checkpw(data['password'].encode(), user.password.encode()):
-        token = jwt.encode({'user': user.username, 'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=1)}, app.config['SECRET_KEY'])
-        response = jsonify({"message": "Login successful"})
-        response.set_cookie('token', token)
-        return response
+        return jsonify({'error': 'Пользователь не найден'}), 404
 
-    return jsonify({"error": "Invalid credentials"}), 401
+    user.blocked = True
+    db.session.commit()
 
-# Выход из аккаунта
-@app.route('/logout')
-def logout():
-    response = redirect(url_for('home'))
-    response.set_cookie('token', '', expires=0)
-    return response
+    return jsonify({'message': 'Пользователь заблокирован'}), 200
 
-# Блокировка пользователя
-@app.route('/admin/block_user', methods=['POST'])
-@token_required
-def block_user():
-    data = request.get_json()
-    user = User.query.filter_by(username=data['username']).first()
-    if user:
-        user.is_blocked = True
-        db.session.commit()
-        return jsonify({"message": "User blocked successfully"})
-    return jsonify({"error": "User not found"}), 404
+@app.route('/admin/delete/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    token = request.cookies.get('token')
+    try:
+        decoded_token = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
+        if decoded_token.get('user') != 'admin':
+            return jsonify({'error': 'Недостаточно прав'}), 403
+    except jwt.InvalidTokenError:
+        return jsonify({'error': 'Недостаточно прав'}), 403
 
-# Разблокировка пользователя
-@app.route('/admin/unblock_user', methods=['POST'])
-@token_required
-def unblock_user():
-    data = request.get_json()
-    user = User.query.filter_by(username=data['username']).first()
-    if user:
-        user.is_blocked = False
-        db.session.commit()
-        return jsonify({"message": "User unblocked successfully"})
-    return jsonify({"error": "User not found"}), 404
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({'error': 'Пользователь не найден'}), 404
 
-# Удаление пользователя
-@app.route('/admin/delete_user', methods=['DELETE'])
-@token_required
-def delete_user():
-    data = request.get_json()
-    user = User.query.filter_by(username=data['username']).first()
-    if user:
-        db.session.delete(user)
-        db.session.commit()
-        return jsonify({"message": "User deleted successfully"})
-    return jsonify({"error": "User not found"}), 404
+    db.session.delete(user)
+    db.session.commit()
+
+    return jsonify({'message': 'Пользователь удалён'}), 200
 
 if __name__ == '__main__':
-    db.create_all()
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=8080)
