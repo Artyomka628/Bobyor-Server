@@ -1,4 +1,4 @@
-﻿from flask import Flask, request, jsonify, render_template, make_response, redirect
+from flask import Flask, request, jsonify, render_template, make_response, redirect
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from flask_limiter import Limiter
@@ -7,7 +7,6 @@ import bcrypt
 import os
 import jwt
 import datetime
-import logging
 from functools import wraps
 from cryptography.fernet import Fernet
 import boto3
@@ -168,18 +167,18 @@ def admin_token_required(f):
     def decorated(*args, **kwargs):
         token = request.cookies.get("admin_token")
         if not token:
-            return jsonify({"error": "Требуется авторизация"}), 401
+            return redirect("/admin/login")
         try:
             jwt.decode(token, app.config["SECRET_KEY"], algorithms=["HS256"])
         except jwt.ExpiredSignatureError:
-            return jsonify({"error": "Токен истек"}), 401
+            return redirect("/admin/unauthorized")
         except jwt.InvalidTokenError:
-            return jsonify({"error": "Недействительный токен"}), 401
+            return redirect("/admin/unauthorized")
         return f(*args, **kwargs)
     return decorated
 
 @app.route("/admin/login", methods=["POST"])
-@limiter.limit("10/hour")
+@limiter.limit("5/hour")
 def admin_login():
     data = request.get_json()
     password = data.get("password")
@@ -204,6 +203,11 @@ def admin_login():
         )
         return response
     return jsonify({"error": "Неверный пароль"}), 401
+
+@app.route("/admin/dashboard", methods=["GET"])
+@admin_token_required
+def admin_dashboard():
+    return render_template("admin_dashboard.html")
 
 @app.route("/admin/users", methods=["GET"])
 @admin_token_required
@@ -270,6 +274,14 @@ def admin_delete_user():
         db.session.rollback()
         return jsonify({"error": "Ошибка удаления"}), 500
 
+@app.route("/admin/unauthorized")
+def admin_unauthorized():
+    return render_template("unauthorized.html")
+
+@app.route("/admin/blocked")
+def admin_blocked():
+    return render_template("blocked.html")
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({"error": "Ресурс не найден"}), 404
@@ -280,4 +292,5 @@ def internal_error(error):
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 4096))
-    app.run(debug=False, host="0.0.0.0", port=port)
+    app.run(debug=True, host="0.0.0.0", port=port)
+    
