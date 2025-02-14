@@ -1,4 +1,20 @@
 run = "pip install -r requirements.txt && python server.py"
+modules = ["python-3.11"]
 
 [deployment]
 run = ["sh", "-c", "pip install -r requirements.txt && python server.py"]
+
+[workflows]
+runButton = "Run"
+
+[[workflows.workflow]]
+name = "Run"
+author = 39662322
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pip install -r requirements.txt && python server.py"
+
+[[ports]]
+localPort = 4096
+externalPort = 80
